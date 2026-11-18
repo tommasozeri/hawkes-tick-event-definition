@@ -1,0 +1,84 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage[italian]{babel}
+\input{../stile}
+
+\title{Contare gli eventi giusti\\[0.3em] \large Spiegazione semplice di ``The Event Definition Is the Model''}
+\author{Tommaso Zeri}
+\date{Novembre 2026}
+
+\begin{document}
+\maketitle
+
+\section*{Di che cosa parla}
+
+Bitcoin si compra e si vende in due modi sulla stessa piattaforma (Binance): sul mercato \emph{spot}, dove si scambia la moneta vera e propria, e sul \emph{perpetual}, un contratto che ne segue il prezzo. I due prezzi sono quasi uguali ma non identici, e la loro differenza si chiama \emph{basis}. Quando uno dei due prezzi si muove, l'altro di solito lo insegue in pochi millisecondi o in pochi secondi, e la differenza si richiude.
+
+Per studiare questo inseguimento ho usato un modello chiamato \emph{processo di Hawkes}. L'articolo racconta una lezione pratica emersa lungo la strada: prima ancora di scegliere il modello bisogna decidere che cosa contare come ``evento''. Con una definizione sbagliata il modello descrive un mercato che non esiste. Con quella giusta descrive bene quello vero, almeno nelle sue linee principali.
+
+\section*{Che cosa vuol dire ``autoeccitante''}
+
+Pensiamo ai terremoti. Una grande scossa fa aumentare per qualche ora la probabilità di altre scosse nella stessa zona: le repliche. Ogni replica, a sua volta, può provocarne altre più piccole. Le scosse quindi non arrivano a caso e in modo uniforme, ma a grappoli.
+
+Un processo di Hawkes è la versione matematica di questa idea. Ogni evento alza per un po' la probabilità di eventi successivi, e questo effetto svanisce col passare del tempo. Nei mercati gli eventi sono i movimenti di prezzo: un rialzo del perpetual rende più probabile, nei millisecondi seguenti, un altro rialzo del perpetual (\emph{autoeccitazione}) oppure un rialzo dello spot (\emph{eccitazione incrociata}). La differenza conta molto:
+se prevale l'autoeccitazione, il perpetual continua a correre da solo e la basis si allarga; se prevale l'eccitazione incrociata, lo spot insegue e la basis si richiude.
+
+In formula, la ``voglia'' del mercato di produrre un evento di un certo tipo in un istante $t$, che si chiama \emph{intensità}, è
+\[
+\text{intensità}(t) = \text{livello di base} + \text{somma dei contributi degli eventi passati},
+\]
+dove ogni contributo è grande subito dopo l'evento e poi si spegne, come l'eco di un rumore.
+
+Da questi contributi si ricava un numero riassuntivo: quanti ``figli'' produce in media ogni evento. Se ogni evento genera in media meno di un figlio, i grappoli prima o poi si esauriscono e il processo è \emph{stazionario}, cioè stabile nel tempo. Se ne genera uno o più, i grappoli non si fermano mai: è il caso detto \emph{critico}. Ogni stima va quindi controllata su questo punto.
+
+\section*{Perché il modo di contare cambia la risposta}
+
+La scelta più ovvia è contare come evento ogni singola variazione del prezzo. Sembra la scelta più fedele ai dati, ed è quella che funziona peggio.
+
+Il motivo si vede con un'analogia. Immaginiamo di contare i passi di una persona usando un sensore che, a ogni passo, registra tre o quattro scatti ravvicinati perché il piede vibra appoggiandosi. Chi guarda solo i conteggi conclude che quella persona fa passi frenetici a distanza di microsecondi. Il modello di Hawkes, applicato a questi dati, fa la stessa cosa: impara le vibrazioni. Nei dati di Bitcoin succede proprio questo. In un giorno ci sono circa 1,4 milioni di variazioni del prezzo, e metà di esse arriva a meno di 33 milionesimi di secondo dalla precedente: sono fotogrammi successivi dello stesso aggiornamento del registro degli ordini, non decisioni di qualcuno.
+
+Si possono eliminare queste raffiche, ma resta un secondo problema. Le variazioni rimaste hanno dimensioni molto diverse: lo spot tende a saltare di più gradini alla volta, il perpetual di uno. Contarle tutte come ``un evento'' è come contare le monete in tasca senza guardarne il valore: dieci monete da un centesimo e dieci da due euro diventano la stessa cifra. Con questi conteggi il modello conclude che la basis si allarga per sempre dopo ogni movimento del perpetual, mentre nei dati la basis torna indietro in pochi secondi. L'errore non è piccolo: la variabilità della basis implicata dal modello in un'ora è di centinaia di dollari, contro una basis reale che oscilla di pochi dollari.
+
+\section*{La soluzione: contare solo i movimenti di una certa ampiezza}
+
+La definizione che funziona è semplice. Per ciascuno dei due prezzi si tiene un prezzo di riferimento. Si registra un evento solo quando il prezzo si allontana dal riferimento di almeno mezzo \emph{basis point}, cioè dello 0,005\%, e a quel punto il riferimento si aggiorna. Le vibrazioni sotto la soglia spariscono, e ogni evento vale circa la stessa cifra su entrambi i mercati. Tornando all'analogia, ora contiamo monete tutte dello stesso taglio. Gli eventi diventano dieci volte meno numerosi, ma restano decine di migliaia al giorno.
+
+Con questa definizione il quadro cambia. Il modello è stabile in ogni finestra di quattro ore dei tredici giorni studiati: ogni evento produce in media tra 0,64 e 0,91 figli, sempre sotto la soglia critica di uno. Nei giorni dal 2024 l'eccitazione incrociata supera l'autoeccitazione, quindi il canale che richiude la basis è quello principale. I controlli statistici sulla bontà dell'adattamento migliorano di circa dieci volte.
+
+\section*{Gli altri attrezzi del mestiere}
+
+L'articolo descrive anche come si stima il modello in pratica, e alcuni accorgimenti si capiscono senza formule.
+
+\begin{itemize}
+\item \emph{Un calcolo in una sola passata.} Per valutare il modello serve sapere, a ogni evento, quanto pesano tutti gli eventi precedenti. Rifare ogni volta la somma da capo sarebbe lentissimo con milioni di eventi. Con contributi che si spengono in modo esponenziale basta aggiornare un totale corrente: si lascia ``evaporare'' il totale per il tempo trascorso e si aggiunge l'evento nuovo, come un serbatoio che perde acqua a ritmo costante.
+\item \emph{Due velocità di memoria.} Il mercato reagisce in due tempi: una reazione immediata, di pochi millesimi di secondo, e un inseguimento più lento, di qualche decimo di secondo. Il modello usa per questo due ``echi'' per ogni coppia di eventi, uno veloce e uno lento.
+\item \emph{Un livello di base che cambia durante il giorno.} Di notte il mercato è tranquillo, nel pomeriggio americano è molto più attivo. Se si assume un livello di base costante, il modello attribuisce questa differenza ai grappoli e sembra più vicino alla soglia critica di quanto sia. Per questo il livello di base può cambiare ogni quindici minuti.
+\item \emph{Prove su dati finti.} Ogni procedura viene prima provata su dati simulati al computer con parametri noti: se la stima non ritrova i valori veri, la procedura è sbagliata. Una di queste prove mostra un fatto utile: un livello di base che cambia nel tempo, stimato come costante, fa sembrare il mercato più vicino alla soglia critica, e il test statistico più usato non se ne accorge.
+\end{itemize}
+
+\section*{Che cosa resta da fare}
+
+Anche con la definizione giusta il modello non è perfetto. Prevede che la basis si richiuda nella direzione giusta, ma da due a sette volte più lentamente di quanto accade nei dati. Il motivo è strutturale: in questo modello la probabilità di un evento dipende solo dagli eventi passati, non da quanto la basis è larga in quel momento. Nella realtà, invece, più la basis si allarga più forte è la spinta a richiuderla, come un elastico. Insegnare al modello questa dipendenza è il passo successivo della tesi.
+
+\section*{Piccolo glossario}
+
+\begin{description}
+\item[Processo di Hawkes] Modello per eventi che arrivano a grappoli, in cui ogni evento rende più probabili quelli successivi per un certo tempo.
+\item[Intensità] La probabilità per unità di tempo che avvenga un evento, istante per istante. Sale dopo ogni evento e poi torna verso il livello di base.
+\item[Eccitazione] L'aumento di intensità provocato da un evento. È \emph{autoeccitazione} se l'evento successivo è dello stesso tipo, \emph{eccitazione incrociata} se è dell'altro mercato.
+\item[Kernel] La forma dell'eco lasciata da un evento: quanto è forte subito e quanto in fretta si spegne.
+\item[Likelihood] (verosimiglianza) Un punteggio che misura quanto i dati osservati sono plausibili per un certo insieme di parametri. Stimare il modello vuol dire cercare i parametri con il punteggio più alto.
+\item[Stazionarietà] La proprietà di un processo stabile, che non esplode nel tempo. Qui equivale a dire che ogni evento genera in media meno di un figlio.
+\item[Basis point (bp)] Un centesimo di punto percentuale, cioè lo 0,01\%. Mezzo bp su un prezzo di 60.000 dollari sono 3 dollari.
+\item[Tick] Il gradino minimo di prezzo ammesso dal mercato. Il tick del perpetual è dieci volte quello dello spot.
+\item[Basis] La differenza tra il prezzo del perpetual e quello dello spot.
+\item[Spot e perpetual] Lo spot è il mercato della moneta vera e propria; il perpetual è un contratto senza scadenza il cui prezzo resta agganciato a quello dello spot.
+\end{description}
+
+\section*{Cosa portare a casa}
+
+Un modello statistico vede solo ciò che gli si dà da contare. Sugli stessi dati e con lo stesso algoritmo, contare ogni variazione del prezzo produce un modello che descrive le vibrazioni del registro degli ordini, vicino alla soglia critica e con una basis che si allarga senza fine; contare solo i movimenti di mezzo basis point produce un modello stabile in cui i due prezzi si inseguono e la basis si richiude. Prima di discutere i parametri di un modello conviene quindi chiedersi se gli eventi che conta corrispondono a qualcosa che accade davvero.
+
+\vspace{1em}
+\noindent\textit{Questa spiegazione accompagna un articolo tratto dalla tesi magistrale dell'autore.}
+
+\end{document}
